@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>US Deals Pipeline Sankey — Sales Global</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; color: #1a1a2e; padding: 32px; }
+    h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+    .subtitle { font-size: 14px; color: #666; margin-bottom: 20px; }
+    .filter-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+    .filter-row label { font-size: 13px; font-weight: 600; color: #555; margin-right: 4px; min-width: 100px; }
+    .pill { padding: 5px 12px; border-radius: 20px; border: 1.5px solid #ddd; background: #fff; font-size: 12px; cursor: pointer; transition: all 0.15s; user-select: none; white-space: nowrap; }
+    .pill:hover { border-color: #aaa; }
+    .pill.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+    .pill.active-seg { background: #e8a838; color: #fff; border-color: #e8a838; }
+    .chart-wrap { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 32px; overflow: hidden; }
+    canvas { display: block; }
+    .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-top: 24px; }
+    .metric-card { background: #fff; border-radius: 10px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .metric-card .stage { font-size: 13px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-card .count { font-size: 28px; font-weight: 700; margin: 6px 0; }
+    .metric-card .detail { font-size: 13px; color: #666; line-height: 1.5; }
+    .metric-card .drop { color: #9e6b7b; font-weight: 600; }
+    .metric-card .conv { color: #27ae60; font-weight: 600; }
+    .metric-card .time { color: #2980b9; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>US Deals Pipeline — Sales Global</h1>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="filter-row" id="quarter-filters">
+    <label>Quarter:</label>
+    <div class="pill active" data-q="all">All</div>
+  </div>
+  <div class="filter-row" id="segment-filters">
+    <label>Segment:</label>
+    <div class="pill active-seg" data-s="all">All</div>
+  </div>
+
+  <div class="chart-wrap">
+    <canvas id="sankey"></canvas>
+  </div>
+
+  <div class="metrics" id="metrics"></div>
+
+  <script>
+    %%DATA_PLACEHOLDER%%
+
+    // [created, qualifying, validating, proposing, closing, closed_won, segment]
+    const STAGE_NAMES = ['Qualifying','Validating','Proposing','Closing','Closed Won'];
+    const STAGE_COLORS = ['#4a90d9','#50b5a9','#7c6bbf','#e8a838','#e8636f'];
+    const DROP_COLOR = '#c4a0ab';
+
+    const deals = DEALS_RAW.map(r => ({
+      created: r[0] ? new Date(r[0]) : null,
+      stages: r.slice(1, 6).map(d => d ? new Date(d) : null),
+      segment: r[6] || '(none)',
+    }));
+
+    function getQuarter(d) {
+      return d.getFullYear() + ' Q' + (Math.floor(d.getMonth() / 3) + 1);
+    }
+
+    // Discover quarters and segments
+    const allQuarters = [...new Set(deals.filter(d => d.created).map(d => getQuarter(d.created)))].sort();
+    const allSegments = [...new Set(deals.map(d => d.segment))].sort((a,b) => {
+      const order = {'Enterprise':0,'Mid-Market':1,'Small':2,'(none)':3};
+      return (order[a]??99) - (order[b]??99);
+    });
+
+    // Build filter pills
+    const qEl = document.getElementById('quarter-filters');
+    allQuarters.forEach(q => {
+      const pill = document.createElement('div');
+      pill.className = 'pill'; pill.dataset.q = q; pill.textContent = q;
+      qEl.appendChild(pill);
+    });
+    const sEl = document.getElementById('segment-filters');
+    allSegments.forEach(s => {
+      const pill = document.createElement('div');
+      pill.className = 'pill'; pill.dataset.s = s; pill.textContent = s;
+      sEl.appendChild(pill);
+    });
+
+    let activeQuarters = new Set(['all']);
+    let activeSegments = new Set(['all']);
+
+    function filterDeals() {
+      return deals.filter(d => {
+        if (!d.created) return false;
+        const qOk = activeQuarters.has('all') || activeQuarters.has(getQuarter(d.created));
+        const sOk = activeSegments.has('all') || activeSegments.has(d.segment);
+        return qOk && sOk;
+      });
+    }
+
+    function compute(filtered) {
+      const counts = STAGE_NAMES.map((_, i) => filtered.filter(d => d.stages[i] !== null).length);
+      const avgDays = [null];
+      for (let i = 1; i < STAGE_NAMES.length; i++) {
+        let sum = 0, n = 0;
+        for (const d of filtered) {
+          if (d.stages[i] && d.stages[i-1]) {
+            const diff = (d.stages[i] - d.stages[i-1]) / (1000*60*60*24);
+            if (diff >= 0) { sum += diff; n++; }
+          }
+        }
+        avgDays.push(n > 0 ? sum / n : null);
+      }
+      return { counts, avgDays };
+    }
+
+    function draw() {
+      const filtered = filterDeals();
+      const { counts, avgDays } = compute(filtered);
+
+      const qLabel = activeQuarters.has('all') ? 'All quarters' : [...activeQuarters].sort().join(', ');
+      const sLabel = activeSegments.has('all') ? 'All segments' : [...activeSegments].sort().join(', ');
+      document.getElementById('subtitle').textContent =
+        filtered.length.toLocaleString() + ' deals · ' + qLabel + ' · ' + sLabel;
+
+      const canvas = document.getElementById('sankey');
+      const dpr = window.devicePixelRatio || 1;
+      const W = 1000, H = 400;
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, W, H);
+
+      if (counts[0] === 0 && counts[1] === 0) {
+        ctx.font = '16px -apple-system, sans-serif';
+        ctx.fillStyle = '#999'; ctx.textAlign = 'center';
+        ctx.fillText('No deals match the selected filters', W/2, H/2);
+        document.getElementById('metrics').innerHTML = '';
+        return;
+      }
+
+      const padL = 60, padR = 60, mainBandY = 70;
+      const nodeW = 14;
+      const maxCount = Math.max(...counts, 1);
+      const maxBandH = 170;
+      const colSpacing = (W - padL - padR - nodeW) / (STAGE_NAMES.length - 1);
+
+      function bandH(c) { return Math.max(4, (c / maxCount) * maxBandH); }
+
+      const nodes = STAGE_NAMES.map((name, i) => {
+        const x = padL + i * colSpacing;
+        const h = bandH(counts[i]);
+        const y = mainBandY + (maxBandH - h) / 2;
+        return { name, count: counts[i], color: STAGE_COLORS[i], x, y, h };
+      });
+
+      // Forward flow bands
+      for (let i = 0; i < nodes.length - 1; i++) {
+        const from = nodes[i], to = nodes[i + 1];
+        const flowCount = Math.min(from.count, to.count);
+        const flowH_from = bandH(flowCount);
+        const flowH_to = bandH(flowCount);
+        const fromX = from.x + nodeW, toX = to.x;
+        const grad = ctx.createLinearGradient(fromX, 0, toX, 0);
+        grad.addColorStop(0, hexAlpha(from.color, 0.35));
+        grad.addColorStop(1, hexAlpha(to.color, 0.35));
+        drawBand(ctx, fromX, from.y, flowH_from, toX, to.y + (to.h - flowH_to)/2, flowH_to, grad);
+      }
+
+      // Drop-off bands
+      for (let i = 0; i < nodes.length - 1; i++) {
+        const node = nodes[i], next = nodes[i + 1];
+        const dropCount = node.count - Math.min(node.count, next.count);
+        if (dropCount <= 0) continue;
+
+        const dropH = bandH(dropCount);
+        const flowH = bandH(Math.min(node.count, next.count));
+        const startX = node.x + nodeW;
+        const startY = node.y + flowH;
+        const endX = startX + colSpacing * 0.4;
+        const endY = mainBandY + maxBandH + 40 + i * 12;
+        const tailH = Math.max(3, dropH * 0.25);
+
+        ctx.globalAlpha = 0.35;
+        ctx.beginPath();
+        const cp1x = startX + (endX - startX) * 0.15;
+        const cp2x = startX + (endX - startX) * 0.5;
+        ctx.moveTo(startX, startY);
+        ctx.bezierCurveTo(cp1x, startY, cp2x, endY, endX, endY);
+        ctx.lineTo(endX, endY + tailH);
+        ctx.bezierCurveTo(cp2x, endY + tailH, cp1x, startY + dropH, startX, startY + dropH);
+        ctx.closePath();
+        ctx.fillStyle = DROP_COLOR; ctx.fill();
+        ctx.globalAlpha = 1;
+
+        ctx.font = '11px -apple-system, sans-serif';
+        ctx.fillStyle = '#9e6b7b'; ctx.textAlign = 'left';
+        ctx.fillText('-' + dropCount.toLocaleString(), endX + 6, endY + tailH / 2 + 4);
+      }
+
+      // Node bars + labels
+      nodes.forEach((n, i) => {
+        ctx.fillStyle = n.color;
+        roundRect(ctx, n.x, n.y, nodeW, n.h, 4); ctx.fill();
+
+        const labelX = n.x + nodeW / 2;
+        ctx.font = 'bold 13px -apple-system, sans-serif';
+        ctx.fillStyle = '#333'; ctx.textAlign = 'center';
+        ctx.fillText(n.name, labelX, n.y - 22);
+
+        ctx.font = 'bold 17px -apple-system, sans-serif';
+        ctx.fillStyle = n.color;
+        ctx.fillText(n.count.toLocaleString(), labelX, n.y - 6);
+
+        if (avgDays[i] !== null) {
+          const prev = nodes[i - 1];
+          const midX = (prev.x + nodeW + n.x) / 2;
+          const midY = Math.min(prev.y, n.y) - 6;
+          ctx.font = '11px -apple-system, sans-serif';
+          ctx.fillStyle = '#999'; ctx.textAlign = 'center';
+          ctx.fillText('~' + avgDays[i].toFixed(1) + 'd', midX, midY);
+        }
+      });
+
+      // Metric cards
+      document.getElementById('metrics').innerHTML = nodes.map((n, i) => {
+        const nextCount = i < nodes.length - 1 ? Math.min(n.count, nodes[i+1].count) : n.count;
+        const drop = n.count - nextCount;
+        const convPct = i > 0 && nodes[i-1].count > 0 ? ((n.count / nodes[i-1].count) * 100).toFixed(1) : null;
+        const dayStr = avgDays[i] !== null ? avgDays[i].toFixed(1) : null;
+        let detail = '';
+        if (dayStr) detail += '<span class="time">~' + dayStr + 'd</span> avg transition<br>';
+        if (convPct) detail += '<span class="conv">' + convPct + '% conversion</span><br>';
+        if (i < nodes.length - 1 && drop > 0) detail += '<span class="drop">' + drop.toLocaleString() + ' dropped</span>';
+        return '<div class="metric-card"><div class="stage">' + n.name + '</div><div class="count" style="color:' + n.color + '">' + n.count.toLocaleString() + '</div><div class="detail">' + detail + '</div></div>';
+      }).join('');
+    }
+
+    // Filter pill logic
+    function setupPills(container, stateSet, activeClass) {
+      container.querySelectorAll('.pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+          const val = pill.dataset.q || pill.dataset.s;
+          if (val === 'all') {
+            stateSet.clear(); stateSet.add('all');
+          } else {
+            stateSet.delete('all');
+            if (stateSet.has(val)) { stateSet.delete(val); if (stateSet.size === 0) stateSet.add('all'); }
+            else stateSet.add(val);
+          }
+          container.querySelectorAll('.pill').forEach(p => {
+            const v = p.dataset.q || p.dataset.s;
+            p.classList.remove('active', 'active-seg');
+            if (v === 'all' ? stateSet.has('all') : stateSet.has(v)) p.classList.add(activeClass);
+          });
+          draw();
+        });
+      });
+    }
+    setupPills(document.getElementById('quarter-filters'), activeQuarters, 'active');
+    setupPills(document.getElementById('segment-filters'), activeSegments, 'active-seg');
+
+    function drawBand(ctx, x1, y1, h1, x2, y2, h2, fill) {
+      const cpx1 = x1 + (x2 - x1) * 0.4, cpx2 = x1 + (x2 - x1) * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.bezierCurveTo(cpx1, y1, cpx2, y2, x2, y2);
+      ctx.lineTo(x2, y2 + h2);
+      ctx.bezierCurveTo(cpx2, y2 + h2, cpx1, y1 + h1, x1, y1 + h1);
+      ctx.closePath();
+      ctx.fillStyle = fill; ctx.fill();
+    }
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+      ctx.quadraticCurveTo(x+w,y,x+w,y+r); ctx.lineTo(x+w,y+h-r);
+      ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h); ctx.lineTo(x+r,y+h);
+      ctx.quadraticCurveTo(x,y+h,x,y+h-r); ctx.lineTo(x,y+r);
+      ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+    }
+    function hexAlpha(hex, a) {
+      return 'rgba(' + parseInt(hex.slice(1,3),16) + ',' + parseInt(hex.slice(3,5),16) + ',' + parseInt(hex.slice(5,7),16) + ',' + a + ')';
+    }
+
+    draw();
+    window.addEventListener('resize', draw);
+  </script>
+</body>
+</html>
