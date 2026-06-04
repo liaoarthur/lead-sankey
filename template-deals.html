@@ -14,6 +14,17 @@
     .pill:hover { border-color: #aaa; }
     .pill.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
     .pill.active-seg { background: #e8a838; color: #fff; border-color: #e8a838; }
+    .dropdown-wrap { position: relative; }
+    .dropdown-btn { padding: 5px 12px; border-radius: 20px; border: 1.5px solid #ddd; background: #fff; font-size: 12px; cursor: pointer; user-select: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+    .dropdown-btn:hover { border-color: #aaa; }
+    .dropdown-btn.has-selection { background: #7c6bbf; color: #fff; border-color: #7c6bbf; }
+    .dropdown-btn::after { content: '▾'; font-size: 10px; }
+    .dropdown-list { display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.12); z-index: 100; max-height: 280px; overflow-y: auto; min-width: 220px; padding: 4px 0; }
+    .dropdown-list.open { display: block; }
+    .dropdown-item { padding: 6px 12px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+    .dropdown-item:hover { background: #f0f0f0; }
+    .dropdown-item input { margin: 0; cursor: pointer; }
+    .dropdown-item.all-item { border-bottom: 1px solid #eee; font-weight: 600; }
     .chart-wrap { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 32px; overflow: hidden; }
     canvas { display: block; }
     .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-top: 24px; }
@@ -39,6 +50,14 @@
     <div class="pill active-seg" data-s="all">All</div>
   </div>
 
+  <div class="filter-row">
+    <label>Deal Owner:</label>
+    <div class="dropdown-wrap" id="owner-dropdown">
+      <div class="dropdown-btn" id="owner-btn">All owners</div>
+      <div class="dropdown-list" id="owner-list"></div>
+    </div>
+  </div>
+
   <div class="chart-wrap">
     <canvas id="sankey"></canvas>
   </div>
@@ -48,7 +67,7 @@
   <script>
     %%DATA_PLACEHOLDER%%
 
-    // [created, qualifying, validating, proposing, closing, closed_won, segment]
+    // [created, qualifying, validating, proposing, closing, closed_won, segment, owner]
     const STAGE_NAMES = ['Qualifying','Validating','Proposing','Closing','Closed Won'];
     const STAGE_COLORS = ['#4a90d9','#50b5a9','#7c6bbf','#e8a838','#e8636f'];
     const DROP_COLOR = '#c4a0ab';
@@ -57,6 +76,7 @@
       created: r[0] ? new Date(r[0]) : null,
       stages: r.slice(1, 6).map(d => d ? new Date(d) : null),
       segment: r[6] || '(none)',
+      owner: r[7] || '(none)',
     }));
 
     function getQuarter(d) {
@@ -84,15 +104,114 @@
       sEl.appendChild(pill);
     });
 
+    const ownerList = document.getElementById('owner-list');
+    const ownerBtn = document.getElementById('owner-btn');
+
     let activeQuarters = new Set(['all']);
     let activeSegments = new Set(['all']);
+    let activeOwners = new Set(['all']);
+
+    // Toggle dropdown
+    ownerBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      ownerList.classList.toggle('open');
+    });
+    document.addEventListener('click', () => ownerList.classList.remove('open'));
+    ownerList.addEventListener('click', (e) => e.stopPropagation());
+
+    function getVisibleOwners() {
+      // Filter by quarter + segment only (not owner) to get the pool
+      const pool = deals.filter(d => {
+        if (!d.created) return false;
+        const qOk = activeQuarters.has('all') || activeQuarters.has(getQuarter(d.created));
+        const sOk = activeSegments.has('all') || activeSegments.has(d.segment);
+        return qOk && sOk;
+      });
+      return [...new Set(pool.map(d => d.owner))].sort((a, b) => {
+        if (a === '(none)') return 1; if (b === '(none)') return -1;
+        return a.localeCompare(b);
+      });
+    }
+
+    function rebuildOwnerDropdown() {
+      const visible = getVisibleOwners();
+      // Prune activeOwners to only visible ones
+      if (!activeOwners.has('all')) {
+        for (const o of [...activeOwners]) {
+          if (!visible.includes(o)) activeOwners.delete(o);
+        }
+        if (activeOwners.size === 0) activeOwners.add('all');
+      }
+
+      ownerList.innerHTML = '';
+      const allItem = document.createElement('div');
+      allItem.className = 'dropdown-item all-item';
+      allItem.innerHTML = '<input type="checkbox" data-owner="all"' + (activeOwners.has('all') ? ' checked' : '') + '> All owners';
+      ownerList.appendChild(allItem);
+
+      visible.forEach(o => {
+        const item = document.createElement('div');
+        item.className = 'dropdown-item';
+        const checked = activeOwners.has(o) ? ' checked' : '';
+        item.innerHTML = '<input type="checkbox" data-owner="' + o.replace(/"/g, '&quot;') + '"' + checked + '> ' + o;
+        ownerList.appendChild(item);
+      });
+
+      // Update button label
+      if (activeOwners.has('all')) {
+        ownerBtn.textContent = 'All owners';
+        ownerBtn.classList.remove('has-selection');
+      } else {
+        const count = activeOwners.size;
+        ownerBtn.textContent = count === 1 ? [...activeOwners][0] : count + ' owners selected';
+        ownerBtn.classList.add('has-selection');
+      }
+    }
+
+    // Checkbox logic (delegated)
+    ownerList.addEventListener('change', (e) => {
+      const cb = e.target;
+      if (!cb.dataset.owner) return;
+      const val = cb.dataset.owner;
+      const allCb = ownerList.querySelector('[data-owner="all"]');
+      const itemCbs = [...ownerList.querySelectorAll('[data-owner]:not([data-owner="all"])')];
+
+      if (val === 'all') {
+        activeOwners = new Set(['all']);
+        itemCbs.forEach(c => c.checked = false);
+        allCb.checked = true;
+      } else {
+        if (cb.checked) {
+          activeOwners.delete('all');
+          activeOwners.add(val);
+          allCb.checked = false;
+        } else {
+          activeOwners.delete(val);
+        }
+        if (activeOwners.size === 0) {
+          activeOwners.add('all');
+          allCb.checked = true;
+        }
+      }
+
+      if (activeOwners.has('all')) {
+        ownerBtn.textContent = 'All owners';
+        ownerBtn.classList.remove('has-selection');
+      } else {
+        const count = activeOwners.size;
+        ownerBtn.textContent = count === 1 ? [...activeOwners][0] : count + ' owners selected';
+        ownerBtn.classList.add('has-selection');
+      }
+      draw();
+    });
 
     function filterDeals() {
       return deals.filter(d => {
         if (!d.created) return false;
         const qOk = activeQuarters.has('all') || activeQuarters.has(getQuarter(d.created));
         const sOk = activeSegments.has('all') || activeSegments.has(d.segment);
-        return qOk && sOk;
+        const oOk = activeOwners.has('all') || activeOwners.has(d.owner);
+        return qOk && sOk && oOk;
       });
     }
 
@@ -113,13 +232,15 @@
     }
 
     function draw() {
+      rebuildOwnerDropdown();
       const filtered = filterDeals();
       const { counts, avgDays } = compute(filtered);
 
       const qLabel = activeQuarters.has('all') ? 'All quarters' : [...activeQuarters].sort().join(', ');
       const sLabel = activeSegments.has('all') ? 'All segments' : [...activeSegments].sort().join(', ');
+      const oLabel = activeOwners.has('all') ? 'All owners' : [...activeOwners].sort().join(', ');
       document.getElementById('subtitle').textContent =
-        filtered.length.toLocaleString() + ' deals · ' + qLabel + ' · ' + sLabel;
+        filtered.length.toLocaleString() + ' deals · ' + qLabel + ' · ' + sLabel + ' · ' + oLabel;
 
       const canvas = document.getElementById('sankey');
       const dpr = window.devicePixelRatio || 1;

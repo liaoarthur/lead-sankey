@@ -129,6 +129,7 @@ DEAL_PROPERTIES = [
     "createdate",
     "pipeline",
     "dealstage",
+    "hubspot_owner_id",
     "americas_deal_segment",
     # Date entered properties use the stage ID as suffix.
     # These are the IDs for Sales - Global stages.
@@ -145,6 +146,7 @@ DEAL_PROPERTIES = [
 # these to the correct internal names from HubSpot > Settings > Properties.
 DEAL_PROP_MAP = {
     "created": "createdate",
+    "owner": "hubspot_owner_id",
     "segment": "americas_deal_segment",
     "qualifying": "hs_date_entered_qualifying",
     "validating": "hs_date_entered_validating",
@@ -162,6 +164,7 @@ def parse_deal(record):
         g("created"), g("qualifying"), g("validating"), g("proposing"),
         g("closing"), g("closed_won"),
         props.get(DEAL_PROP_MAP["segment"], "") or "",
+        props.get(DEAL_PROP_MAP["owner"], "") or "",
     ]
 
 
