@@ -8,7 +8,9 @@ Requires HUBSPOT_API_KEY env var (private app access token).
 import os
 import sys
 import json
+import time
 import urllib.request
+import urllib.error
 
 HUBSPOT_API_KEY = os.environ.get("HUBSPOT_API_KEY")
 if not HUBSPOT_API_KEY:
@@ -17,6 +19,10 @@ if not HUBSPOT_API_KEY:
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.join(SCRIPT_DIR, "..")
+
+# Search API allows ~4 requests/sec; 0.25s between calls keeps us just under it.
+SEARCH_THROTTLE_SECONDS = 0.25
+MAX_RETRIES = 6
 
 
 # ── Generic HubSpot helpers ──────────────────────────────────────────────────
@@ -41,8 +47,23 @@ def hubspot_search(object_type, properties, filters=None, after=None, date_prope
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read())
+
+    # HubSpot's Search API is rate-limited (~4 req/s). Throttle to stay under it,
+    # and retry on 429/5xx with backoff, honoring the Retry-After header.
+    time.sleep(SEARCH_THROTTLE_SECONDS)
+    for attempt in range(MAX_RETRIES):
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503, 504) and attempt < MAX_RETRIES - 1:
+                retry_after = e.headers.get("Retry-After")
+                wait = float(retry_after) if retry_after else 2 ** attempt
+                print(f"    HTTP {e.code}; retrying in {wait:.0f}s "
+                      f"(attempt {attempt + 1}/{MAX_RETRIES})")
+                time.sleep(wait)
+                continue
+            raise
 
 
 # HubSpot's Search API refuses to paginate past 10,000 records (after + limit
