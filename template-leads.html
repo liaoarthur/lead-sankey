@@ -5,7 +5,7 @@
   <title>Lead Pipeline Sankey — Heidi Health US</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; color: #1a1a2e; padding: 32px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; color: #1a1a2e; padding: 24px; }
     h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
     .subtitle { font-size: 14px; color: #666; margin-bottom: 20px; }
     .filter-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
@@ -14,8 +14,8 @@
     .pill:hover { border-color: #aaa; }
     .pill.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
     .pill.active-trigger { background: #50b5a9; color: #fff; border-color: #50b5a9; }
-    .chart-wrap { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 32px; overflow: hidden; }
-    canvas { display: block; }
+    .chart-wrap { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 24px; overflow: hidden; width: 100%; }
+    canvas { display: block; width: 100%; }
     .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-top: 24px; }
     .metric-card { background: #fff; border-radius: 10px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
     .metric-card .stage { font-size: 13px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -188,9 +188,11 @@
 
       const canvas = document.getElementById('sankey');
       const dpr = window.devicePixelRatio || 1;
-      const W = 1000, H = 460;
+      const wrap = canvas.parentElement;
+      const W = Math.max(1000, Math.floor(wrap.clientWidth - 48)), H = 460;
       canvas.width = W * dpr; canvas.height = H * dpr;
       canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+      canvas.dataset.logicalWidth = W; canvas.dataset.logicalHeight = H;
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, W, H);
@@ -397,16 +399,16 @@
     document.getElementById('sankey').addEventListener('click', e => {
       const canvas = e.currentTarget;
       const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) * (1000 / rect.width);
-      const y = (e.clientY - rect.top) * (460 / rect.height);
+      const x = (e.clientX - rect.left) * ((Number(canvas.dataset.logicalWidth) || 1000) / rect.width);
+      const y = (e.clientY - rect.top) * ((Number(canvas.dataset.logicalHeight) || 460) / rect.height);
       const target = [...clickTargets].reverse().find(t => x >= t.x && x <= t.x + t.w && y >= t.y && y <= t.y + t.h);
       if (target) showTarget(target);
     });
     document.getElementById('sankey').addEventListener('mousemove', e => {
       const canvas = e.currentTarget;
       const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) * (1000 / rect.width);
-      const y = (e.clientY - rect.top) * (460 / rect.height);
+      const x = (e.clientX - rect.left) * ((Number(canvas.dataset.logicalWidth) || 1000) / rect.width);
+      const y = (e.clientY - rect.top) * ((Number(canvas.dataset.logicalHeight) || 460) / rect.height);
       const target = clickTargets.find(t => x >= t.x && x <= t.x + t.w && y >= t.y && y <= t.y + t.h);
       canvas.style.cursor = target ? 'pointer' : 'default';
     });
