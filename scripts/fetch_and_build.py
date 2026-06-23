@@ -27,6 +27,33 @@ MAX_RETRIES = 6
 
 # ── Generic HubSpot helpers ──────────────────────────────────────────────────
 
+def hubspot_get(path):
+    req = urllib.request.Request(
+        f"https://api.hubapi.com{path}",
+        headers={"Authorization": f"Bearer {HUBSPOT_API_KEY}"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+
+
+def discover_lead_properties():
+    """TEMP DIAGNOSTIC: print the real stage-date / trigger property names and
+    pipeline stages for the leads object, so we can map them correctly."""
+    print("=== DISCOVER: leads stage-date & trigger properties ===")
+    props = hubspot_get("/crm/v3/properties/leads").get("results", [])
+    for p in props:
+        n = p.get("name", "")
+        if "date_entered" in n or "date_exited" in n or "trigger" in n or n in ("hs_pipeline_stage", "hs_pipeline"):
+            print(f"  {n}  |  {p.get('label')}")
+    print("=== DISCOVER: leads pipelines & stages ===")
+    pipes = hubspot_get("/crm/v3/pipelines/leads").get("results", [])
+    for pipe in pipes:
+        print(f"  pipeline {pipe.get('id')} — {pipe.get('label')}")
+        for s in pipe.get("stages", []):
+            print(f"    stage {s.get('id')} — {s.get('label')}")
+    print("=== END DISCOVER ===\n")
+
+
 def hubspot_search(object_type, properties, filters=None, after=None, date_property="createdate"):
     url = f"https://api.hubapi.com/crm/v3/objects/{object_type}/search"
     body = {
@@ -243,6 +270,7 @@ def build_deals():
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    discover_lead_properties()  # TEMP — remove after mapping stage properties
     build_leads()
     print()
     build_deals()
