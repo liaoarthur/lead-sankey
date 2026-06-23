@@ -27,33 +27,6 @@ MAX_RETRIES = 6
 
 # ── Generic HubSpot helpers ──────────────────────────────────────────────────
 
-def hubspot_get(path):
-    req = urllib.request.Request(
-        f"https://api.hubapi.com{path}",
-        headers={"Authorization": f"Bearer {HUBSPOT_API_KEY}"},
-    )
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read())
-
-
-def discover_lead_properties():
-    """TEMP DIAGNOSTIC: print the real stage-date / trigger property names and
-    pipeline stages for the leads object, so we can map them correctly."""
-    print("=== DISCOVER: leads stage-date & trigger properties ===")
-    props = hubspot_get("/crm/v3/properties/leads").get("results", [])
-    for p in props:
-        n = p.get("name", "")
-        if "date_entered" in n or "date_exited" in n or "trigger" in n or n in ("hs_pipeline_stage", "hs_pipeline"):
-            print(f"  {n}  |  {p.get('label')}")
-    print("=== DISCOVER: leads pipelines & stages ===")
-    pipes = hubspot_get("/crm/v3/pipelines/leads").get("results", [])
-    for pipe in pipes:
-        print(f"  pipeline {pipe.get('id')} — {pipe.get('label')}")
-        for s in pipe.get("stages", []):
-            print(f"    stage {s.get('id')} — {s.get('label')}")
-    print("=== END DISCOVER ===\n")
-
-
 def hubspot_search(object_type, properties, filters=None, after=None, date_property="createdate"):
     url = f"https://api.hubapi.com/crm/v3/objects/{object_type}/search"
     body = {
@@ -166,26 +139,20 @@ def build_html(template_name, output_name, data_var, data):
 
 # ── Leads ────────────────────────────────────────────────────────────────────
 
-LEAD_PROPERTIES = [
-    "hs_createdate",  # the Leads object's create timestamp (NOT `createdate`)
-    "createdate",     # requested as a fallback in case the portal populates it
-    "hs_lead_trigger",
-    "hs_date_entered_new",
-    "hs_date_entered_attempting",
-    "hs_date_entered_connected",
-    "hs_date_entered_pre_qualified",
-    "hs_date_entered_qualified",
-]
-
+# The Leads object uses hs_v2_date_entered_<stage> properties (with stage-id
+# suffixes specific to this portal's Lead pipeline) and `lead_trigger`. These
+# exact names were discovered from /crm/v3/properties/leads.
 LEAD_PROP_MAP = {
-    "created": "createdate",
-    "trigger": "hs_lead_trigger",
-    "new": "hs_date_entered_new",
-    "attempting": "hs_date_entered_attempting",
-    "connected": "hs_date_entered_connected",
-    "prequalified": "hs_date_entered_pre_qualified",
-    "qualified": "hs_date_entered_qualified",
+    "created": "hs_createdate",
+    "trigger": "lead_trigger",
+    "new": "hs_v2_date_entered_new_stage_id_1318266061",
+    "attempting": "hs_v2_date_entered_attempting_stage_id_745667965",
+    "connected": "hs_v2_date_entered_connected_stage_id_2058487257",
+    "prequalified": "hs_v2_date_entered_1180327981",
+    "qualified": "hs_v2_date_entered_qualified_stage_id_233247981",
 }
+
+LEAD_PROPERTIES = ["createdate"] + list(LEAD_PROP_MAP.values())
 
 
 def parse_lead(record):
@@ -270,7 +237,6 @@ def build_deals():
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    discover_lead_properties()  # TEMP — remove after mapping stage properties
     build_leads()
     print()
     build_deals()
