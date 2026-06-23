@@ -21,12 +21,12 @@ ROOT_DIR = os.path.join(SCRIPT_DIR, "..")
 
 # ── Generic HubSpot helpers ──────────────────────────────────────────────────
 
-def hubspot_search(object_type, properties, filters=None, after=None):
+def hubspot_search(object_type, properties, filters=None, after=None, date_property="createdate"):
     url = f"https://api.hubapi.com/crm/v3/objects/{object_type}/search"
     body = {
         "limit": 100,
         "properties": properties,
-        "sorts": [{"propertyName": "createdate", "direction": "ASCENDING"}],
+        "sorts": [{"propertyName": date_property, "direction": "ASCENDING"}],
     }
     if filters:
         body["filterGroups"] = [{"filters": filters}]
@@ -47,13 +47,16 @@ def hubspot_search(object_type, properties, filters=None, after=None):
 
 # HubSpot's Search API refuses to paginate past 10,000 records (after + limit
 # must stay <= 10,000). We page with the `after` cursor up to WINDOW_PAGES, then
-# re-anchor a fresh search on `createdate >= last_seen` and keep going. Records
-# are sorted by createdate ASC, and we dedup by id since the re-anchored window
-# re-fetches records sharing the boundary timestamp.
+# re-anchor a fresh search on `<date_property> >= last_seen` and keep going.
+# Records are sorted ASC by the same date_property, and we dedup by id since the
+# re-anchored window re-fetches records sharing the boundary timestamp.
+# NOTE: the date_property differs per object — deals use `createdate`, but the
+# newer Leads object uses `hs_createdate`. Using the wrong one returns nulls,
+# which both empties the output and stalls pagination (last_seen never advances).
 WINDOW_PAGES = 90  # 9,000 records per window — safely under the 10k cap
 
 
-def fetch_all(object_type, properties, filters=None):
+def fetch_all(object_type, properties, filters=None, date_property="createdate"):
     all_records = []
     seen_ids = set()
     last_createdate = None
@@ -62,7 +65,7 @@ def fetch_all(object_type, properties, filters=None):
         window_filters = list(filters) if filters else []
         if last_createdate is not None:
             window_filters.append({
-                "propertyName": "createdate",
+                "propertyName": date_property,
                 "operator": "GTE",
                 "value": last_createdate,
             })
@@ -74,7 +77,7 @@ def fetch_all(object_type, properties, filters=None):
             page += 1
             window_page += 1
             print(f"  Page {page}...")
-            result = hubspot_search(object_type, properties, window_filters or None, after)
+            result = hubspot_search(object_type, properties, window_filters or None, after, date_property)
             records = result.get("results", [])
             for r in records:
                 rid = r.get("id")
@@ -82,7 +85,7 @@ def fetch_all(object_type, properties, filters=None):
                     seen_ids.add(rid)
                     all_records.append(r)
                     progressed = True
-                cd = r.get("properties", {}).get("createdate")
+                cd = r.get("properties", {}).get(date_property)
                 if cd:
                     last_createdate = cd
             after = result.get("paging", {}).get("next", {}).get("after")
@@ -116,7 +119,8 @@ def build_html(template_name, output_name, data_var, data):
 # ── Leads ────────────────────────────────────────────────────────────────────
 
 LEAD_PROPERTIES = [
-    "createdate",
+    "hs_createdate",  # the Leads object's create timestamp (NOT `createdate`)
+    "createdate",     # requested as a fallback in case the portal populates it
     "hs_lead_trigger",
     "hs_date_entered_new",
     "hs_date_entered_attempting",
@@ -140,8 +144,9 @@ def parse_lead(record):
     props = record.get("properties", {})
     def g(key):
         return props.get(LEAD_PROP_MAP[key]) or None
+    created = props.get("hs_createdate") or props.get("createdate") or None
     return [
-        g("created"), g("new"), g("attempting"), g("connected"),
+        created, g("new"), g("attempting"), g("connected"),
         g("prequalified"), g("qualified"),
         props.get(LEAD_PROP_MAP["trigger"], ""),
     ]
@@ -149,7 +154,7 @@ def parse_lead(record):
 
 def build_leads():
     print("Fetching leads...")
-    raw = fetch_all("leads", LEAD_PROPERTIES)
+    raw = fetch_all("leads", LEAD_PROPERTIES, date_property="hs_createdate")
     print(f"  Got {len(raw)} leads")
     data = [parse_lead(r) for r in raw]
     data = [d for d in data if d[0]]
