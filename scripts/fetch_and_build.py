@@ -23,6 +23,7 @@ ROOT_DIR = os.path.join(SCRIPT_DIR, "..")
 # Search API allows ~4 requests/sec; 0.25s between calls keeps us just under it.
 SEARCH_THROTTLE_SECONDS = 0.25
 MAX_RETRIES = 6
+US_COUNTRY_VALUE = "United States"
 
 
 # ── Generic HubSpot helpers ──────────────────────────────────────────────────
@@ -152,7 +153,7 @@ LEAD_PROP_MAP = {
     "qualified": "hs_v2_date_entered_qualified_stage_id_233247981",
 }
 
-LEAD_PROPERTIES = ["createdate"] + list(LEAD_PROP_MAP.values())
+LEAD_PROPERTIES = ["createdate", "country"] + list(LEAD_PROP_MAP.values())
 
 
 def parse_lead(record):
@@ -168,8 +169,9 @@ def parse_lead(record):
 
 
 def build_leads():
-    print("Fetching leads...")
-    raw = fetch_all("leads", LEAD_PROPERTIES, date_property="hs_createdate")
+    print("Fetching US leads...")
+    filters = [{"propertyName": "country", "operator": "EQ", "value": US_COUNTRY_VALUE}]
+    raw = fetch_all("leads", LEAD_PROPERTIES, filters, date_property="hs_createdate")
     print(f"  Got {len(raw)} leads")
     data = [parse_lead(r) for r in raw]
     data = [d for d in data if d[0]]
@@ -195,7 +197,7 @@ DEAL_PROP_MAP = {
     "closed_won": "hs_v2_date_entered_143789170",
 }
 
-DEAL_PROPERTIES = ["pipeline", "dealstage"] + list(DEAL_PROP_MAP.values())
+DEAL_PROPERTIES = ["pipeline", "dealstage", "country"] + list(DEAL_PROP_MAP.values())
 
 
 def parse_deal(record):
@@ -211,8 +213,11 @@ def parse_deal(record):
 
 
 def build_deals():
-    print("Fetching deals (Sales - Global pipeline)...")
-    filters = [{"propertyName": "pipeline", "operator": "EQ", "value": SALES_GLOBAL_PIPELINE}]
+    print("Fetching US deals (Sales - Global pipeline)...")
+    filters = [
+        {"propertyName": "pipeline", "operator": "EQ", "value": SALES_GLOBAL_PIPELINE},
+        {"propertyName": "country", "operator": "EQ", "value": US_COUNTRY_VALUE},
+    ]
     raw = fetch_all("deals", DEAL_PROPERTIES, filters)
     print(f"  Got {len(raw)} deals")
     data = [parse_deal(r) for r in raw]
