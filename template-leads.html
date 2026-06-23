@@ -81,8 +81,18 @@
       'connected-stage-id': 'Connected',
       '1180327981': 'Pre-Qualified',
       'qualified-stage-id': 'Qualified',
-      'unqualified-stage-id': 'Unqualified',
-      '1149824643': 'Nurture'
+      'unqualified-stage-id': 'Disqualified',
+      '1149824643': 'Long term follow-up'
+    };
+    const CURRENT_STAGE_ORDER = {
+      'new-stage-id': 0,
+      'attempting-stage-id': 1,
+      'connected-stage-id': 2,
+      '1180327981': 3,
+      'qualified-stage-id': 4,
+      'unqualified-stage-id': 5,
+      '1149824643': 6,
+      '': 99
     };
     let clickTargets = [];
 
@@ -142,6 +152,16 @@
       const counts = STAGE_NAMES.map((_, i) => filtered.filter(l => l.stages[i] !== null).length);
       const flowCounts = STAGE_NAMES.slice(0, -1).map((_, i) => filtered.filter(l => l.stages[i] && l.stages[i + 1]).length);
       const dropCounts = STAGE_NAMES.slice(0, -1).map((_, i) => filtered.filter(l => l.stages[i] && !l.stages[i + 1]).length);
+      const dropGroups = STAGE_NAMES.slice(0, -1).map((_, i) => {
+        const groups = new Map();
+        filtered.filter(l => l.stages[i] && !l.stages[i + 1]).forEach(l => {
+          const key = l.currentStage || '';
+          groups.set(key, (groups.get(key) || 0) + 1);
+        });
+        return [...groups.entries()]
+          .map(([currentStage, count]) => ({ currentStage, count }))
+          .sort((a, b) => (CURRENT_STAGE_ORDER[a.currentStage] ?? 98) - (CURRENT_STAGE_ORDER[b.currentStage] ?? 98) || stageLabel(a.currentStage).localeCompare(stageLabel(b.currentStage)));
+      });
       const avgDays = [null];
       for (let i = 1; i < STAGE_NAMES.length; i++) {
         let sum = 0, n = 0;
@@ -153,12 +173,12 @@
         }
         avgDays.push(n > 0 ? sum / n : null);
       }
-      return { counts, flowCounts, dropCounts, avgDays };
+      return { counts, flowCounts, dropCounts, dropGroups, avgDays };
     }
 
     function draw() {
       const filtered = filterLeads();
-      const { counts, flowCounts, dropCounts, avgDays } = compute(filtered);
+      const { counts, flowCounts, dropCounts, dropGroups, avgDays } = compute(filtered);
       clickTargets = [];
 
       const qLabel = activeQuarters.has('all') ? 'All quarters' : [...activeQuarters].sort().join(', ');
@@ -168,7 +188,7 @@
 
       const canvas = document.getElementById('sankey');
       const dpr = window.devicePixelRatio || 1;
-      const W = 1000, H = 400;
+      const W = 1000, H = 460;
       canvas.width = W * dpr; canvas.height = H * dpr;
       canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
       const ctx = canvas.getContext('2d');
@@ -222,7 +242,7 @@
         const startX = node.x + nodeW;
         const startY = node.y + flowH;
         const endX = startX + colSpacing * 0.4;
-        const endY = mainBandY + maxBandH + 40 + i * 12;
+        const endY = mainBandY + maxBandH + 38;
         const tailH = Math.max(3, dropH * 0.25);
 
         ctx.globalAlpha = 0.35;
@@ -241,10 +261,15 @@
         ctx.font = '11px -apple-system, sans-serif';
         ctx.fillStyle = '#9e6b7b';
         ctx.textAlign = 'left';
-        ctx.fillText('-' + dropCount.toLocaleString(), endX + 6, endY + tailH / 2 + 4);
-        clickTargets.push({
-          x: endX - 8, y: endY - 8, w: 80, h: Math.max(24, tailH + 16),
-          type: 'drop', index: i
+        const groups = dropGroups[i];
+        groups.forEach((group, groupIndex) => {
+          const label = dropLabel(i, group.currentStage) + ': -' + group.count.toLocaleString();
+          const labelY = endY + tailH / 2 + 4 + groupIndex * 15;
+          ctx.fillText(label, endX + 6, labelY, colSpacing * 0.85);
+          clickTargets.push({
+            x: endX - 8, y: labelY - 12, w: colSpacing * 0.9, h: 16,
+            type: 'drop', index: i, currentStage: group.currentStage
+          });
         });
       }
 
@@ -295,6 +320,11 @@
     function stageLabel(value) {
       return CURRENT_STAGE_LABELS[value] || value || '(none)';
     }
+    function dropLabel(index, currentStage) {
+      const currentLabel = stageLabel(currentStage);
+      if (currentLabel === STAGE_NAMES[index]) return 'Left in ' + STAGE_NAMES[index];
+      return STAGE_NAMES[index] + ' -> ' + currentLabel;
+    }
     function formatDate(raw) {
       if (!raw) return '';
       return new Date(raw).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -325,8 +355,8 @@
         const rows = filtered.filter(l => l.stages[target.index]);
         renderDetails(STAGE_NAMES[target.index] + ' leads', rows);
       } else {
-        const rows = filtered.filter(l => l.stages[target.index] && !l.stages[target.index + 1]);
-        renderDetails(STAGE_NAMES[target.index] + ' dropoff before ' + STAGE_NAMES[target.index + 1], rows);
+        const rows = filtered.filter(l => l.stages[target.index] && !l.stages[target.index + 1] && (l.currentStage || '') === target.currentStage);
+        renderDetails(dropLabel(target.index, target.currentStage), rows);
       }
     }
 
@@ -368,7 +398,7 @@
       const canvas = e.currentTarget;
       const rect = canvas.getBoundingClientRect();
       const x = (e.clientX - rect.left) * (1000 / rect.width);
-      const y = (e.clientY - rect.top) * (400 / rect.height);
+      const y = (e.clientY - rect.top) * (460 / rect.height);
       const target = [...clickTargets].reverse().find(t => x >= t.x && x <= t.x + t.w && y >= t.y && y <= t.y + t.h);
       if (target) showTarget(target);
     });
@@ -376,7 +406,7 @@
       const canvas = e.currentTarget;
       const rect = canvas.getBoundingClientRect();
       const x = (e.clientX - rect.left) * (1000 / rect.width);
-      const y = (e.clientY - rect.top) * (400 / rect.height);
+      const y = (e.clientY - rect.top) * (460 / rect.height);
       const target = clickTargets.find(t => x >= t.x && x <= t.x + t.w && y >= t.y && y <= t.y + t.h);
       canvas.style.cursor = target ? 'pointer' : 'default';
     });
