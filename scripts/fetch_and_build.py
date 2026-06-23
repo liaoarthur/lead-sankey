@@ -181,35 +181,21 @@ def build_leads():
 # Pipeline ID for "Sales - Global" — update if yours differs
 SALES_GLOBAL_PIPELINE = "74974043"
 
-DEAL_PROPERTIES = [
-    "createdate",
-    "pipeline",
-    "dealstage",
-    "hubspot_owner_id",
-    "americas_deal_segment",
-    # Date entered properties use the stage ID as suffix.
-    # These are the IDs for Sales - Global stages.
-    # If they don't return data, check your HubSpot for the correct property names.
-    "hs_date_entered_qualifying",
-    "hs_date_entered_validating",
-    "hs_date_entered_proposing",
-    "hs_date_entered_closing",
-    "hs_date_entered_closed_won",
-]
-
-# Fallback: if the above property names don't work, the script
-# will still run — those fields will just be null. You can update
-# these to the correct internal names from HubSpot > Settings > Properties.
+# Deal stage-date properties use HubSpot's hs_v2_date_entered_<stageId> form.
+# These stage IDs are the Sales - Global pipeline (74974043), discovered from
+# /crm/v3/pipelines/deals. Segment is `deal_segment` ("Americas Deal Segment").
 DEAL_PROP_MAP = {
     "created": "createdate",
     "owner": "hubspot_owner_id",
-    "segment": "americas_deal_segment",
-    "qualifying": "hs_date_entered_qualifying",
-    "validating": "hs_date_entered_validating",
-    "proposing": "hs_date_entered_proposing",
-    "closing": "hs_date_entered_closing",
-    "closed_won": "hs_date_entered_closed_won",
+    "segment": "deal_segment",
+    "qualifying": "hs_v2_date_entered_163594108",
+    "validating": "hs_v2_date_entered_143813020",
+    "proposing": "hs_v2_date_entered_156266285",
+    "closing": "hs_v2_date_entered_968135579",
+    "closed_won": "hs_v2_date_entered_143789170",
 }
+
+DEAL_PROPERTIES = ["pipeline", "dealstage"] + list(DEAL_PROP_MAP.values())
 
 
 def parse_deal(record):
@@ -236,32 +222,7 @@ def build_deals():
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def _discover_deals():  # TEMP diagnostic
-    req = urllib.request.Request(
-        "https://api.hubapi.com/crm/v3/properties/deals",
-        headers={"Authorization": f"Bearer {HUBSPOT_API_KEY}"})
-    props = json.loads(urllib.request.urlopen(req).read()).get("results", [])
-    print("=== DEAL date_entered / segment properties ===", flush=True)
-    for p in props:
-        n = p.get("name", "")
-        if "date_entered" in n or "segment" in n:
-            print(f"  {n}  |  {p.get('label')}", flush=True)
-    req2 = urllib.request.Request(
-        "https://api.hubapi.com/crm/v3/pipelines/deals",
-        headers={"Authorization": f"Bearer {HUBSPOT_API_KEY}"})
-    pipes = json.loads(urllib.request.urlopen(req2).read()).get("results", [])
-    print("=== DEAL pipelines & stages ===", flush=True)
-    for pipe in pipes:
-        if pipe.get("id") == SALES_GLOBAL_PIPELINE:
-            print(f"  pipeline {pipe.get('id')} — {pipe.get('label')}", flush=True)
-            for s in pipe.get("stages", []):
-                print(f"    stage {s.get('id')} — {s.get('label')}", flush=True)
-    print("=== END DISCOVER ===", flush=True)
-    sys.exit(0)
-
-
 def main():
-    _discover_deals()  # TEMP — remove after mapping deal stage properties
     build_leads()
     print()
     build_deals()
