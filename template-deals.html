@@ -35,6 +35,18 @@
     .metric-card .drop { color: #9e6b7b; font-weight: 600; }
     .metric-card .conv { color: #27ae60; font-weight: 600; }
     .metric-card .time { color: #2980b9; font-weight: 600; }
+    .detail-panel { display: none; margin-top: 20px; background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
+    .detail-panel.open { display: block; }
+    .detail-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 16px; border-bottom: 1px solid #eee; }
+    .detail-title { font-size: 14px; font-weight: 700; color: #333; }
+    .detail-subtitle { font-size: 12px; color: #777; margin-top: 2px; }
+    .detail-close { border: 0; background: #f0f1f3; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; font-size: 18px; line-height: 1; color: #555; }
+    .detail-body { max-height: 420px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 9px 12px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
+    th { position: sticky; top: 0; background: #fafafa; color: #666; font-weight: 700; z-index: 1; }
+    td a { color: #2f73b7; font-weight: 600; text-decoration: none; }
+    td a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -63,20 +75,43 @@
   </div>
 
   <div class="metrics" id="metrics"></div>
+  <div class="detail-panel" id="detail-panel">
+    <div class="detail-head">
+      <div>
+        <div class="detail-title" id="detail-title"></div>
+        <div class="detail-subtitle" id="detail-subtitle"></div>
+      </div>
+      <button class="detail-close" id="detail-close" type="button">×</button>
+    </div>
+    <div class="detail-body" id="detail-body"></div>
+  </div>
 
   <script>
     %%DATA_PLACEHOLDER%%
 
-    // [created, qualifying, validating, proposing, closing, closed_won, segment, owner]
+    // [id, url, created, qualifying, validating, proposing, closing, closed_won, segment, owner, current_stage, dealname]
     const STAGE_NAMES = ['Qualifying','Validating','Proposing','Closing','Closed Won'];
     const STAGE_COLORS = ['#4a90d9','#50b5a9','#7c6bbf','#e8a838','#e8636f'];
     const DROP_COLOR = '#c4a0ab';
+    const CURRENT_STAGE_LABELS = {
+      '163594108': 'Qualifying',
+      '143813020': 'Validating',
+      '156266285': 'Proposing',
+      '968135579': 'Closing',
+      '143789170': 'Closed Won'
+    };
+    let clickTargets = [];
 
     const deals = DEALS_RAW.map(r => ({
-      created: r[0] ? new Date(r[0]) : null,
-      stages: r.slice(1, 6).map(d => d ? new Date(d) : null),
-      segment: r[6] || '(none)',
-      owner: r[7] || '(none)',
+      id: r[0] || '',
+      url: r[1] || '',
+      createdRaw: r[2] || '',
+      created: r[2] ? new Date(r[2]) : null,
+      stages: r.slice(3, 8).map(d => d ? new Date(d) : null),
+      segment: r[8] || '(none)',
+      owner: r[9] || '(none)',
+      currentStage: r[10] || '',
+      name: r[11] || '',
     }));
 
     function getQuarter(d) {
@@ -217,6 +252,8 @@
 
     function compute(filtered) {
       const counts = STAGE_NAMES.map((_, i) => filtered.filter(d => d.stages[i] !== null).length);
+      const flowCounts = STAGE_NAMES.slice(0, -1).map((_, i) => filtered.filter(d => d.stages[i] && d.stages[i + 1]).length);
+      const dropCounts = STAGE_NAMES.slice(0, -1).map((_, i) => filtered.filter(d => d.stages[i] && !d.stages[i + 1]).length);
       const avgDays = [null];
       for (let i = 1; i < STAGE_NAMES.length; i++) {
         let sum = 0, n = 0;
@@ -228,13 +265,14 @@
         }
         avgDays.push(n > 0 ? sum / n : null);
       }
-      return { counts, avgDays };
+      return { counts, flowCounts, dropCounts, avgDays };
     }
 
     function draw() {
       rebuildOwnerDropdown();
       const filtered = filterDeals();
-      const { counts, avgDays } = compute(filtered);
+      const { counts, flowCounts, dropCounts, avgDays } = compute(filtered);
+      clickTargets = [];
 
       const qLabel = activeQuarters.has('all') ? 'All quarters' : [...activeQuarters].sort().join(', ');
       const sLabel = activeSegments.has('all') ? 'All segments' : [...activeSegments].sort().join(', ');
@@ -277,7 +315,8 @@
       // Forward flow bands
       for (let i = 0; i < nodes.length - 1; i++) {
         const from = nodes[i], to = nodes[i + 1];
-        const flowCount = Math.min(from.count, to.count);
+        const flowCount = flowCounts[i];
+        if (flowCount <= 0) continue;
         const flowH_from = bandH(flowCount);
         const flowH_to = bandH(flowCount);
         const fromX = from.x + nodeW, toX = to.x;
@@ -290,11 +329,11 @@
       // Drop-off bands
       for (let i = 0; i < nodes.length - 1; i++) {
         const node = nodes[i], next = nodes[i + 1];
-        const dropCount = node.count - Math.min(node.count, next.count);
+        const dropCount = dropCounts[i];
         if (dropCount <= 0) continue;
 
         const dropH = bandH(dropCount);
-        const flowH = bandH(Math.min(node.count, next.count));
+        const flowH = flowCounts[i] > 0 ? bandH(flowCounts[i]) : 0;
         const startX = node.x + nodeW;
         const startY = node.y + flowH;
         const endX = startX + colSpacing * 0.4;
@@ -316,6 +355,10 @@
         ctx.font = '11px -apple-system, sans-serif';
         ctx.fillStyle = '#9e6b7b'; ctx.textAlign = 'left';
         ctx.fillText('-' + dropCount.toLocaleString(), endX + 6, endY + tailH / 2 + 4);
+        clickTargets.push({
+          x: endX - 8, y: endY - 8, w: 80, h: Math.max(24, tailH + 16),
+          type: 'drop', index: i
+        });
       }
 
       // Node bars + labels
@@ -340,12 +383,15 @@
           ctx.fillStyle = '#999'; ctx.textAlign = 'center';
           ctx.fillText('~' + avgDays[i].toFixed(1) + 'd', midX, midY);
         }
+        clickTargets.push({
+          x: n.x - 42, y: n.y - 46, w: 98, h: n.h + 56,
+          type: 'stage', index: i
+        });
       });
 
       // Metric cards
       document.getElementById('metrics').innerHTML = nodes.map((n, i) => {
-        const nextCount = i < nodes.length - 1 ? Math.min(n.count, nodes[i+1].count) : n.count;
-        const drop = n.count - nextCount;
+        const drop = i < nodes.length - 1 ? dropCounts[i] : 0;
         const convPct = i > 0 && nodes[i-1].count > 0 ? ((n.count / nodes[i-1].count) * 100).toFixed(1) : null;
         const dayStr = avgDays[i] !== null ? avgDays[i].toFixed(1) : null;
         let detail = '';
@@ -354,6 +400,41 @@
         if (i < nodes.length - 1 && drop > 0) detail += '<span class="drop">' + drop.toLocaleString() + ' dropped</span>';
         return '<div class="metric-card"><div class="stage">' + n.name + '</div><div class="count" style="color:' + n.color + '">' + n.count.toLocaleString() + '</div><div class="detail">' + detail + '</div></div>';
       }).join('');
+    }
+
+    function stageLabel(value) {
+      return CURRENT_STAGE_LABELS[value] || value || '(none)';
+    }
+    function formatDate(raw) {
+      if (!raw) return '';
+      return new Date(raw).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function renderDetails(title, rows) {
+      const panel = document.getElementById('detail-panel');
+      document.getElementById('detail-title').textContent = title;
+      document.getElementById('detail-subtitle').textContent =
+        rows.length.toLocaleString() + ' matching deals from the current dashboard filters';
+      const shown = rows.slice(0, 500);
+      const note = rows.length > shown.length ? '<p style="padding:10px 12px;color:#777;font-size:12px;">Showing first 500 records.</p>' : '';
+      document.getElementById('detail-body').innerHTML = note + '<table><thead><tr><th>Deal</th><th>Created</th><th>Segment</th><th>Owner</th><th>Current stage</th></tr></thead><tbody>' +
+        shown.map(d => '<tr><td><a href="' + escapeHtml(d.url) + '" target="_blank" rel="noopener">' + escapeHtml(d.name || ('Deal ' + d.id)) + '</a></td><td>' +
+          escapeHtml(formatDate(d.createdRaw)) + '</td><td>' + escapeHtml(d.segment) + '</td><td>' + escapeHtml(d.owner) + '</td><td>' + escapeHtml(stageLabel(d.currentStage)) + '</td></tr>').join('') +
+        '</tbody></table>';
+      panel.classList.add('open');
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    function showTarget(target) {
+      const filtered = filterDeals();
+      if (target.type === 'stage') {
+        const rows = filtered.filter(d => d.stages[target.index]);
+        renderDetails(STAGE_NAMES[target.index] + ' deals', rows);
+      } else {
+        const rows = filtered.filter(d => d.stages[target.index] && !d.stages[target.index + 1]);
+        renderDetails(STAGE_NAMES[target.index] + ' dropoff before ' + STAGE_NAMES[target.index + 1], rows);
+      }
     }
 
     // Filter pill logic
@@ -379,6 +460,26 @@
     }
     setupPills(document.getElementById('quarter-filters'), activeQuarters, 'active');
     setupPills(document.getElementById('segment-filters'), activeSegments, 'active-seg');
+
+    document.getElementById('detail-close').addEventListener('click', () => {
+      document.getElementById('detail-panel').classList.remove('open');
+    });
+    document.getElementById('sankey').addEventListener('click', e => {
+      const canvas = e.currentTarget;
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (1000 / rect.width);
+      const y = (e.clientY - rect.top) * (400 / rect.height);
+      const target = [...clickTargets].reverse().find(t => x >= t.x && x <= t.x + t.w && y >= t.y && y <= t.y + t.h);
+      if (target) showTarget(target);
+    });
+    document.getElementById('sankey').addEventListener('mousemove', e => {
+      const canvas = e.currentTarget;
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (1000 / rect.width);
+      const y = (e.clientY - rect.top) * (400 / rect.height);
+      const target = clickTargets.find(t => x >= t.x && x <= t.x + t.w && y >= t.y && y <= t.y + t.h);
+      canvas.style.cursor = target ? 'pointer' : 'default';
+    });
 
     function drawBand(ctx, x1, y1, h1, x2, y2, h2, fill) {
       const cpx1 = x1 + (x2 - x1) * 0.4, cpx2 = x1 + (x2 - x1) * 0.6;

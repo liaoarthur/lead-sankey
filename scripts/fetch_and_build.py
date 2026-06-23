@@ -17,6 +17,8 @@ if not HUBSPOT_API_KEY:
     print("ERROR: HUBSPOT_API_KEY env var not set")
     sys.exit(1)
 
+HUBSPOT_PORTAL_ID = os.environ.get("HUBSPOT_PORTAL_ID", "21939747")
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.join(SCRIPT_DIR, "..")
 
@@ -138,6 +140,10 @@ def build_html(template_name, output_name, data_var, data):
     print(f"  Written {output_name} ({len(data)} records, {os.path.getsize(output_path) // 1024} KB)")
 
 
+def hubspot_record_url(object_path, record_id):
+    return f"https://app.hubspot.com/contacts/{HUBSPOT_PORTAL_ID}/record/{object_path}/{record_id}"
+
+
 # ── Leads ────────────────────────────────────────────────────────────────────
 
 # The Leads object uses hs_v2_date_entered_<stage> properties (with stage-id
@@ -146,6 +152,7 @@ def build_html(template_name, output_name, data_var, data):
 LEAD_PROP_MAP = {
     "created": "hs_createdate",
     "trigger": "lead_trigger",
+    "current_stage": "hs_pipeline_stage",
     "new": "hs_v2_date_entered_new_stage_id_1318266061",
     "attempting": "hs_v2_date_entered_attempting_stage_id_745667965",
     "connected": "hs_v2_date_entered_connected_stage_id_2058487257",
@@ -158,13 +165,17 @@ LEAD_PROPERTIES = ["createdate", "country"] + list(LEAD_PROP_MAP.values())
 
 def parse_lead(record):
     props = record.get("properties", {})
+    record_id = record.get("id") or props.get("hs_object_id") or ""
     def g(key):
         return props.get(LEAD_PROP_MAP[key]) or None
     created = props.get("hs_createdate") or props.get("createdate") or None
     return [
+        record_id,
+        hubspot_record_url("0-2", record_id) if record_id else "",
         created, g("new"), g("attempting"), g("connected"),
         g("prequalified"), g("qualified"),
         props.get(LEAD_PROP_MAP["trigger"], ""),
+        props.get(LEAD_PROP_MAP["current_stage"], "") or "",
     ]
 
 
@@ -174,7 +185,7 @@ def build_leads():
     raw = fetch_all("leads", LEAD_PROPERTIES, filters, date_property="hs_createdate")
     print(f"  Got {len(raw)} leads")
     data = [parse_lead(r) for r in raw]
-    data = [d for d in data if d[0]]
+    data = [d for d in data if d[2]]
     build_html("template-leads.html", "index.html", "LEADS_RAW", data)
 
 
@@ -190,6 +201,8 @@ DEAL_PROP_MAP = {
     "created": "createdate",
     "owner": "hubspot_owner_id",
     "segment": "deal_segment",
+    "current_stage": "dealstage",
+    "name": "dealname",
     "qualifying": "hs_v2_date_entered_163594108",
     "validating": "hs_v2_date_entered_143813020",
     "proposing": "hs_v2_date_entered_156266285",
@@ -197,18 +210,23 @@ DEAL_PROP_MAP = {
     "closed_won": "hs_v2_date_entered_143789170",
 }
 
-DEAL_PROPERTIES = ["pipeline", "dealstage", "country"] + list(DEAL_PROP_MAP.values())
+DEAL_PROPERTIES = ["pipeline", "country"] + list(DEAL_PROP_MAP.values())
 
 
 def parse_deal(record):
     props = record.get("properties", {})
+    record_id = record.get("id") or props.get("hs_object_id") or ""
     def g(key):
         return props.get(DEAL_PROP_MAP[key]) or None
     return [
+        record_id,
+        hubspot_record_url("0-3", record_id) if record_id else "",
         g("created"), g("qualifying"), g("validating"), g("proposing"),
         g("closing"), g("closed_won"),
         props.get(DEAL_PROP_MAP["segment"], "") or "",
         props.get(DEAL_PROP_MAP["owner"], "") or "",
+        props.get(DEAL_PROP_MAP["current_stage"], "") or "",
+        props.get(DEAL_PROP_MAP["name"], "") or "",
     ]
 
 
@@ -221,7 +239,7 @@ def build_deals():
     raw = fetch_all("deals", DEAL_PROPERTIES, filters)
     print(f"  Got {len(raw)} deals")
     data = [parse_deal(r) for r in raw]
-    data = [d for d in data if d[0]]
+    data = [d for d in data if d[2]]
     build_html("template-deals.html", "deals.html", "DEALS_RAW", data)
 
 
