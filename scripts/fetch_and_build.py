@@ -236,7 +236,32 @@ def build_deals():
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def _discover_deals():  # TEMP diagnostic
+    req = urllib.request.Request(
+        "https://api.hubapi.com/crm/v3/properties/deals",
+        headers={"Authorization": f"Bearer {HUBSPOT_API_KEY}"})
+    props = json.loads(urllib.request.urlopen(req).read()).get("results", [])
+    print("=== DEAL date_entered / segment properties ===", flush=True)
+    for p in props:
+        n = p.get("name", "")
+        if "date_entered" in n or "segment" in n:
+            print(f"  {n}  |  {p.get('label')}", flush=True)
+    req2 = urllib.request.Request(
+        "https://api.hubapi.com/crm/v3/pipelines/deals",
+        headers={"Authorization": f"Bearer {HUBSPOT_API_KEY}"})
+    pipes = json.loads(urllib.request.urlopen(req2).read()).get("results", [])
+    print("=== DEAL pipelines & stages ===", flush=True)
+    for pipe in pipes:
+        if pipe.get("id") == SALES_GLOBAL_PIPELINE:
+            print(f"  pipeline {pipe.get('id')} — {pipe.get('label')}", flush=True)
+            for s in pipe.get("stages", []):
+                print(f"    stage {s.get('id')} — {s.get('label')}", flush=True)
+    print("=== END DISCOVER ===", flush=True)
+    sys.exit(0)
+
+
 def main():
+    _discover_deals()  # TEMP — remove after mapping deal stage properties
     build_leads()
     print()
     build_deals()
