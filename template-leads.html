@@ -69,7 +69,7 @@
 
   <script>
     // DATA_PLACEHOLDER will be replaced by the build script, or inlined directly
-    // Format: [id, url, created, new, attempting, connected, prequalified, qualified, trigger, current_stage]
+    // Format: [id, url, name, created, new, attempting, connected, prequalified, qualified, trigger, current_stage]
     %%DATA_PLACEHOLDER%%
 
     const STAGE_NAMES = ['New','Attempting','Connected','Pre-Qualified','Qualified'];
@@ -89,11 +89,12 @@
     const leads = LEADS_RAW.map(r => ({
       id: r[0] || '',
       url: r[1] || '',
-      createdRaw: r[2] || '',
-      created: r[2] ? new Date(r[2]) : null,
-      stages: r.slice(3, 8).map(d => d ? new Date(d) : null),
-      trigger: r[8] || '(none)',
-      currentStage: r[9] || '',
+      name: r[2] || '',
+      createdRaw: r[3] || '',
+      created: r[3] ? new Date(r[3]) : null,
+      stages: r.slice(4, 9).map(d => d ? new Date(d) : null),
+      trigger: r[9] || '(none)',
+      currentStage: r[10] || '',
     }));
 
     function getQuarter(d) {
@@ -308,7 +309,7 @@
       const shown = rows.slice(0, 500);
       const note = rows.length > shown.length ? '<p style="padding:10px 12px;color:#777;font-size:12px;">Showing first 500 records.</p>' : '';
       document.getElementById('detail-body').innerHTML = note + '<table><thead><tr><th>Lead</th><th>Created</th><th>Trigger</th><th>Current stage</th></tr></thead><tbody>' +
-        shown.map(l => '<tr><td><a href="' + escapeHtml(l.url) + '" target="_blank" rel="noopener">Lead ' + escapeHtml(l.id) + '</a></td><td>' +
+        shown.map(l => '<tr><td><a href="' + escapeHtml(l.url) + '" target="_blank" rel="noopener">' + escapeHtml(l.name || ('Lead ' + l.id)) + '</a></td><td>' +
           escapeHtml(formatDate(l.createdRaw)) + '</td><td>' + escapeHtml(l.trigger) + '</td><td>' + escapeHtml(stageLabel(l.currentStage)) + '</td></tr>').join('') +
         '</tbody></table>';
       panel.classList.add('open');

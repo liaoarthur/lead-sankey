@@ -151,6 +151,7 @@ def hubspot_record_url(object_path, record_id):
 # exact names were discovered from /crm/v3/properties/leads.
 LEAD_PROP_MAP = {
     "created": "hs_createdate",
+    "name": "hs_lead_name",
     "trigger": "lead_trigger",
     "current_stage": "hs_pipeline_stage",
     "new": "hs_v2_date_entered_new_stage_id_1318266061",
@@ -171,7 +172,8 @@ def parse_lead(record):
     created = props.get("hs_createdate") or props.get("createdate") or None
     return [
         record_id,
-        hubspot_record_url("0-2", record_id) if record_id else "",
+        hubspot_record_url("0-136", record_id) if record_id else "",
+        props.get(LEAD_PROP_MAP["name"], "") or "",
         created, g("new"), g("attempting"), g("connected"),
         g("prequalified"), g("qualified"),
         props.get(LEAD_PROP_MAP["trigger"], ""),
@@ -185,7 +187,7 @@ def build_leads():
     raw = fetch_all("leads", LEAD_PROPERTIES, filters, date_property="hs_createdate")
     print(f"  Got {len(raw)} leads")
     data = [parse_lead(r) for r in raw]
-    data = [d for d in data if d[2]]
+    data = [d for d in data if d[3]]
     build_html("template-leads.html", "index.html", "LEADS_RAW", data)
 
 
