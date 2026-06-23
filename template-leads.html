@@ -69,7 +69,7 @@
 
   <script>
     // DATA_PLACEHOLDER will be replaced by the build script, or inlined directly
-    // Format: [id, url, name, created, new, attempting, connected, prequalified, qualified, trigger, current_stage]
+    // Format: [id, contact_url, name, contact_id, created, new, attempting, connected, prequalified, qualified, trigger, current_stage]
     %%DATA_PLACEHOLDER%%
 
     const STAGE_NAMES = ['New','Attempting','Connected','Pre-Qualified','Qualified'];
@@ -90,11 +90,12 @@
       id: r[0] || '',
       url: r[1] || '',
       name: r[2] || '',
-      createdRaw: r[3] || '',
-      created: r[3] ? new Date(r[3]) : null,
-      stages: r.slice(4, 9).map(d => d ? new Date(d) : null),
-      trigger: r[9] || '(none)',
-      currentStage: r[10] || '',
+      contactId: r[3] || '',
+      createdRaw: r[4] || '',
+      created: r[4] ? new Date(r[4]) : null,
+      stages: r.slice(5, 10).map(d => d ? new Date(d) : null),
+      trigger: r[10] || '(none)',
+      currentStage: r[11] || '',
     }));
 
     function getQuarter(d) {
@@ -308,8 +309,11 @@
         rows.length.toLocaleString() + ' matching leads from the current dashboard filters';
       const shown = rows.slice(0, 500);
       const note = rows.length > shown.length ? '<p style="padding:10px 12px;color:#777;font-size:12px;">Showing first 500 records.</p>' : '';
-      document.getElementById('detail-body').innerHTML = note + '<table><thead><tr><th>Lead</th><th>Created</th><th>Trigger</th><th>Current stage</th></tr></thead><tbody>' +
-        shown.map(l => '<tr><td><a href="' + escapeHtml(l.url) + '" target="_blank" rel="noopener">' + escapeHtml(l.name || ('Lead ' + l.id)) + '</a></td><td>' +
+      const leadCell = l => l.url
+        ? '<a href="' + escapeHtml(l.url) + '" target="_blank" rel="noopener">' + escapeHtml(l.name || ('Lead ' + l.id)) + '</a>'
+        : escapeHtml(l.name || ('Lead ' + l.id)) + ' <span style="color:#999;">(no primary contact)</span>';
+      document.getElementById('detail-body').innerHTML = note + '<table><thead><tr><th>Lead</th><th>Created</th><th>Trigger</th><th>Current lead stage</th></tr></thead><tbody>' +
+        shown.map(l => '<tr><td>' + leadCell(l) + '</td><td>' +
           escapeHtml(formatDate(l.createdRaw)) + '</td><td>' + escapeHtml(l.trigger) + '</td><td>' + escapeHtml(stageLabel(l.currentStage)) + '</td></tr>').join('') +
         '</tbody></table>';
       panel.classList.add('open');

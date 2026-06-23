@@ -152,6 +152,7 @@ def hubspot_record_url(object_path, record_id):
 LEAD_PROP_MAP = {
     "created": "hs_createdate",
     "name": "hs_lead_name",
+    "primary_contact_id": "hs_primary_contact_id",
     "trigger": "lead_trigger",
     "current_stage": "hs_pipeline_stage",
     "new": "hs_v2_date_entered_new_stage_id_1318266061",
@@ -167,13 +168,15 @@ LEAD_PROPERTIES = ["createdate", "country"] + list(LEAD_PROP_MAP.values())
 def parse_lead(record):
     props = record.get("properties", {})
     record_id = record.get("id") or props.get("hs_object_id") or ""
+    contact_id = props.get(LEAD_PROP_MAP["primary_contact_id"], "") or ""
     def g(key):
         return props.get(LEAD_PROP_MAP[key]) or None
     created = props.get("hs_createdate") or props.get("createdate") or None
     return [
         record_id,
-        hubspot_record_url("0-136", record_id) if record_id else "",
+        hubspot_record_url("0-1", contact_id) if contact_id else "",
         props.get(LEAD_PROP_MAP["name"], "") or "",
+        contact_id,
         created, g("new"), g("attempting"), g("connected"),
         g("prequalified"), g("qualified"),
         props.get(LEAD_PROP_MAP["trigger"], ""),
@@ -187,7 +190,7 @@ def build_leads():
     raw = fetch_all("leads", LEAD_PROPERTIES, filters, date_property="hs_createdate")
     print(f"  Got {len(raw)} leads")
     data = [parse_lead(r) for r in raw]
-    data = [d for d in data if d[3]]
+    data = [d for d in data if d[4]]
     build_html("template-leads.html", "index.html", "LEADS_RAW", data)
 
 
