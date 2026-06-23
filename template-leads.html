@@ -32,7 +32,14 @@
     .detail-close { border: 0; background: #f0f1f3; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; font-size: 18px; line-height: 1; color: #555; }
     .detail-body { max-height: 420px; overflow: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .detail-table { table-layout: fixed; }
+    .col-lead { width: 30%; }
+    .col-created { width: 12%; }
+    .col-trigger { width: 24%; }
+    .col-owner { width: 16%; }
+    .col-stage { width: 18%; }
     th, td { padding: 9px 12px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
+    td { overflow-wrap: anywhere; }
     th { position: sticky; top: 0; background: #fafafa; color: #666; font-weight: 700; z-index: 1; }
     td a { color: #2f73b7; font-weight: 600; text-decoration: none; }
     td a:hover { text-decoration: underline; }
@@ -69,7 +76,7 @@
 
   <script>
     // DATA_PLACEHOLDER will be replaced by the build script, or inlined directly
-    // Format: [id, contact_url, name, contact_id, created, new, attempting, connected, prequalified, qualified, trigger, current_stage]
+    // Format: [id, contact_url, name, contact_id, created, new, attempting, connected, prequalified, qualified, trigger, current_stage, owner_id, owner_name]
     %%DATA_PLACEHOLDER%%
 
     const STAGE_NAMES = ['New','Attempting','Connected','Pre-Qualified','Qualified'];
@@ -106,6 +113,8 @@
       stages: r.slice(5, 10).map(d => d ? new Date(d) : null),
       trigger: r[10] || '(none)',
       currentStage: r[11] || '',
+      ownerId: r[12] || '',
+      ownerName: r[13] || '(none)',
     }));
 
     function getQuarter(d) {
@@ -344,9 +353,9 @@
       const leadCell = l => l.url
         ? '<a href="' + escapeHtml(l.url) + '" target="_blank" rel="noopener">' + escapeHtml(l.name || ('Lead ' + l.id)) + '</a>'
         : escapeHtml(l.name || ('Lead ' + l.id)) + ' <span style="color:#999;">(no primary contact)</span>';
-      document.getElementById('detail-body').innerHTML = note + '<table><thead><tr><th>Lead</th><th>Created</th><th>Trigger</th><th>Current lead stage</th></tr></thead><tbody>' +
+      document.getElementById('detail-body').innerHTML = note + '<table class="detail-table"><colgroup><col class="col-lead"><col class="col-created"><col class="col-trigger"><col class="col-owner"><col class="col-stage"></colgroup><thead><tr><th>Lead</th><th>Created</th><th>Trigger</th><th>Object owner</th><th>Current lead stage</th></tr></thead><tbody>' +
         shown.map(l => '<tr><td>' + leadCell(l) + '</td><td>' +
-          escapeHtml(formatDate(l.createdRaw)) + '</td><td>' + escapeHtml(l.trigger) + '</td><td>' + escapeHtml(stageLabel(l.currentStage)) + '</td></tr>').join('') +
+          escapeHtml(formatDate(l.createdRaw)) + '</td><td>' + escapeHtml(l.trigger) + '</td><td>' + escapeHtml(l.ownerName) + '</td><td>' + escapeHtml(stageLabel(l.currentStage)) + '</td></tr>').join('') +
         '</tbody></table>';
       panel.classList.add('open');
       panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

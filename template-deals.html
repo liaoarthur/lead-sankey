@@ -43,7 +43,14 @@
     .detail-close { border: 0; background: #f0f1f3; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; font-size: 18px; line-height: 1; color: #555; }
     .detail-body { max-height: 420px; overflow: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .detail-table { table-layout: fixed; }
+    .col-deal { width: 30%; }
+    .col-created { width: 12%; }
+    .col-segment { width: 14%; }
+    .col-owner { width: 22%; }
+    .col-stage { width: 22%; }
     th, td { padding: 9px 12px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
+    td { overflow-wrap: anywhere; }
     th { position: sticky; top: 0; background: #fafafa; color: #666; font-weight: 700; z-index: 1; }
     td a { color: #2f73b7; font-weight: 600; text-decoration: none; }
     td a:hover { text-decoration: underline; }
@@ -89,7 +96,7 @@
   <script>
     %%DATA_PLACEHOLDER%%
 
-    // [id, url, created, qualifying, validating, proposing, closing, closed_won, segment, owner, current_stage, dealname]
+    // [id, url, created, qualifying, validating, proposing, closing, closed_won, segment, owner_id, owner_name, current_stage, dealname]
     const STAGE_NAMES = ['Qualifying','Validating','Proposing','Closing','Closed Won'];
     const STAGE_COLORS = ['#4a90d9','#50b5a9','#7c6bbf','#e8a838','#e8636f'];
     const DROP_COLOR = '#c4a0ab';
@@ -98,7 +105,8 @@
       '143813020': 'Validating',
       '156266285': 'Proposing',
       '968135579': 'Closing',
-      '143789170': 'Closed Won'
+      '143789170': 'Closed Won',
+      '143789171': 'Closed Lost'
     };
     let clickTargets = [];
 
@@ -109,9 +117,10 @@
       created: r[2] ? new Date(r[2]) : null,
       stages: r.slice(3, 8).map(d => d ? new Date(d) : null),
       segment: r[8] || '(none)',
-      owner: r[9] || '(none)',
-      currentStage: r[10] || '',
-      name: r[11] || '',
+      ownerId: r[9] || '',
+      owner: r[10] || '(none)',
+      currentStage: r[11] || '',
+      name: r[12] || '',
     }));
 
     function getQuarter(d) {
@@ -421,7 +430,7 @@
         rows.length.toLocaleString() + ' matching deals from the current dashboard filters';
       const shown = rows.slice(0, 500);
       const note = rows.length > shown.length ? '<p style="padding:10px 12px;color:#777;font-size:12px;">Showing first 500 records.</p>' : '';
-      document.getElementById('detail-body').innerHTML = note + '<table><thead><tr><th>Deal</th><th>Created</th><th>Segment</th><th>Owner</th><th>Current stage</th></tr></thead><tbody>' +
+      document.getElementById('detail-body').innerHTML = note + '<table class="detail-table"><colgroup><col class="col-deal"><col class="col-created"><col class="col-segment"><col class="col-owner"><col class="col-stage"></colgroup><thead><tr><th>Deal</th><th>Created</th><th>Segment</th><th>Object owner</th><th>Current stage</th></tr></thead><tbody>' +
         shown.map(d => '<tr><td><a href="' + escapeHtml(d.url) + '" target="_blank" rel="noopener">' + escapeHtml(d.name || ('Deal ' + d.id)) + '</a></td><td>' +
           escapeHtml(formatDate(d.createdRaw)) + '</td><td>' + escapeHtml(d.segment) + '</td><td>' + escapeHtml(d.owner) + '</td><td>' + escapeHtml(stageLabel(d.currentStage)) + '</td></tr>').join('') +
         '</tbody></table>';

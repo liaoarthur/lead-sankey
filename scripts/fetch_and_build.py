@@ -26,6 +26,7 @@ ROOT_DIR = os.path.join(SCRIPT_DIR, "..")
 SEARCH_THROTTLE_SECONDS = 0.25
 MAX_RETRIES = 6
 US_COUNTRY_VALUE = "United States"
+OWNER_MAP = {}
 
 
 # ── Generic HubSpot helpers ──────────────────────────────────────────────────
@@ -67,6 +68,39 @@ def hubspot_search(object_type, properties, filters=None, after=None, date_prope
                 time.sleep(wait)
                 continue
             raise
+
+
+def hubspot_get_json(url):
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {HUBSPOT_API_KEY}"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+
+
+def fetch_owner_map():
+    owners = {}
+    after = None
+    while True:
+        url = "https://api.hubapi.com/crm/v3/owners/?limit=500&archived=false"
+        if after:
+            url += f"&after={after}"
+        result = hubspot_get_json(url)
+        for owner in result.get("results", []):
+            owner_id = str(owner.get("id") or "")
+            name = " ".join(p for p in [owner.get("firstName"), owner.get("lastName")] if p).strip()
+            owners[owner_id] = name or owner.get("email") or owner_id
+        after = result.get("paging", {}).get("next", {}).get("after")
+        if not after:
+            return owners
+
+
+def owner_name(owner_id):
+    owner_id = str(owner_id or "")
+    if not owner_id:
+        return "(none)"
+    return OWNER_MAP.get(owner_id, f"Unknown owner ({owner_id})")
 
 
 # HubSpot's Search API refuses to paginate past 10,000 records (after + limit
@@ -152,6 +186,7 @@ def hubspot_record_url(object_path, record_id):
 LEAD_PROP_MAP = {
     "created": "hs_createdate",
     "name": "hs_lead_name",
+    "owner": "hubspot_owner_id",
     "primary_contact_id": "hs_primary_contact_id",
     "trigger": "lead_trigger",
     "current_stage": "hs_pipeline_stage",
@@ -181,6 +216,8 @@ def parse_lead(record):
         g("prequalified"), g("qualified"),
         props.get(LEAD_PROP_MAP["trigger"], ""),
         props.get(LEAD_PROP_MAP["current_stage"], "") or "",
+        props.get(LEAD_PROP_MAP["owner"], "") or "",
+        owner_name(props.get(LEAD_PROP_MAP["owner"], "")),
     ]
 
 
@@ -230,6 +267,7 @@ def parse_deal(record):
         g("closing"), g("closed_won"),
         props.get(DEAL_PROP_MAP["segment"], "") or "",
         props.get(DEAL_PROP_MAP["owner"], "") or "",
+        owner_name(props.get(DEAL_PROP_MAP["owner"], "")),
         props.get(DEAL_PROP_MAP["current_stage"], "") or "",
         props.get(DEAL_PROP_MAP["name"], "") or "",
     ]
@@ -251,6 +289,10 @@ def build_deals():
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    global OWNER_MAP
+    OWNER_MAP = fetch_owner_map()
+    print(f"Loaded {len(OWNER_MAP)} HubSpot owners")
+    print()
     build_leads()
     print()
     build_deals()
