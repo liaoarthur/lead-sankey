@@ -45,20 +45,56 @@ def hubspot_search(object_type, properties, filters=None, after=None):
         return json.loads(resp.read())
 
 
+# HubSpot's Search API refuses to paginate past 10,000 records (after + limit
+# must stay <= 10,000). We page with the `after` cursor up to WINDOW_PAGES, then
+# re-anchor a fresh search on `createdate >= last_seen` and keep going. Records
+# are sorted by createdate ASC, and we dedup by id since the re-anchored window
+# re-fetches records sharing the boundary timestamp.
+WINDOW_PAGES = 90  # 9,000 records per window — safely under the 10k cap
+
+
 def fetch_all(object_type, properties, filters=None):
     all_records = []
-    after = None
+    seen_ids = set()
+    last_createdate = None
     page = 0
     while True:
-        page += 1
-        print(f"  Page {page}...")
-        result = hubspot_search(object_type, properties, filters, after)
-        records = result.get("results", [])
-        all_records.extend(records)
-        after = result.get("paging", {}).get("next", {}).get("after")
-        if not after or not records:
-            break
-    return all_records
+        window_filters = list(filters) if filters else []
+        if last_createdate is not None:
+            window_filters.append({
+                "propertyName": "createdate",
+                "operator": "GTE",
+                "value": last_createdate,
+            })
+
+        after = None
+        window_page = 0
+        progressed = False
+        while window_page < WINDOW_PAGES:
+            page += 1
+            window_page += 1
+            print(f"  Page {page}...")
+            result = hubspot_search(object_type, properties, window_filters or None, after)
+            records = result.get("results", [])
+            for r in records:
+                rid = r.get("id")
+                if rid not in seen_ids:
+                    seen_ids.add(rid)
+                    all_records.append(r)
+                    progressed = True
+                cd = r.get("properties", {}).get("createdate")
+                if cd:
+                    last_createdate = cd
+            after = result.get("paging", {}).get("next", {}).get("after")
+            if not after or not records:
+                return all_records
+
+        # Hit the window cap; re-anchor on last_createdate via the outer loop.
+        # If a full window yielded nothing new, stop to avoid an infinite loop
+        # (e.g. >9,000 records sharing one exact createdate).
+        if not progressed:
+            print("  WARNING: window made no progress; stopping pagination early")
+            return all_records
 
 
 def build_html(template_name, output_name, data_var, data):
