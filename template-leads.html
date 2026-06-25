@@ -30,6 +30,10 @@
     .detail-title { font-size: 14px; font-weight: 700; color: #333; }
     .detail-subtitle { font-size: 12px; color: #777; margin-top: 2px; }
     .detail-close { border: 0; background: #f0f1f3; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; font-size: 18px; line-height: 1; color: #555; }
+    .detail-actions { display: flex; align-items: center; gap: 8px; }
+    .sort-label { font-size: 12px; font-weight: 600; color: #888; }
+    .sort-select { padding: 5px 10px; border-radius: 8px; border: 1.5px solid #ddd; background: #fff; font-size: 12px; color: #333; cursor: pointer; }
+    .sort-select:hover { border-color: #aaa; }
     .detail-body { max-height: 420px; overflow: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .detail-table { table-layout: fixed; }
@@ -69,7 +73,14 @@
         <div class="detail-title" id="detail-title"></div>
         <div class="detail-subtitle" id="detail-subtitle"></div>
       </div>
-      <button class="detail-close" id="detail-close" type="button">×</button>
+      <div class="detail-actions">
+        <label class="sort-label" for="detail-sort">Sort:</label>
+        <select class="sort-select" id="detail-sort">
+          <option value="created_desc">Newest first</option>
+          <option value="created_asc">Oldest first</option>
+        </select>
+        <button class="detail-close" id="detail-close" type="button">×</button>
+      </div>
     </div>
     <div class="detail-body" id="detail-body"></div>
   </div>
@@ -343,9 +354,34 @@
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
+    let currentDetailRows = [];
+    let currentDetailTitle = '';
+    let detailSort = 'created_desc';
+
+    function sortDetailRows(rows) {
+      const dir = detailSort === 'created_asc' ? 1 : -1;
+      return rows.slice().sort((a, b) => {
+        const ta = a.created ? a.created.getTime() : null;
+        const tb = b.created ? b.created.getTime() : null;
+        if (ta === null && tb === null) return 0;
+        if (ta === null) return 1;
+        if (tb === null) return -1;
+        return (ta - tb) * dir;
+      });
+    }
+
     function renderDetails(title, rows) {
+      currentDetailTitle = title;
+      currentDetailRows = rows;
+      paintDetailTable();
       const panel = document.getElementById('detail-panel');
-      document.getElementById('detail-title').textContent = title;
+      panel.classList.add('open');
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function paintDetailTable() {
+      const rows = sortDetailRows(currentDetailRows);
+      document.getElementById('detail-title').textContent = currentDetailTitle;
       document.getElementById('detail-subtitle').textContent =
         rows.length.toLocaleString() + ' matching leads from the current dashboard filters';
       const shown = rows.slice(0, 500);
@@ -357,8 +393,6 @@
         shown.map(l => '<tr><td>' + leadCell(l) + '</td><td>' +
           escapeHtml(formatDate(l.createdRaw)) + '</td><td>' + escapeHtml(l.trigger) + '</td><td>' + escapeHtml(l.ownerName) + '</td><td>' + escapeHtml(stageLabel(l.currentStage)) + '</td></tr>').join('') +
         '</tbody></table>';
-      panel.classList.add('open');
-      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
     function showTarget(target) {
       const filtered = filterLeads();
@@ -404,6 +438,10 @@
 
     document.getElementById('detail-close').addEventListener('click', () => {
       document.getElementById('detail-panel').classList.remove('open');
+    });
+    document.getElementById('detail-sort').addEventListener('change', (e) => {
+      detailSort = e.target.value;
+      paintDetailTable();
     });
     document.getElementById('sankey').addEventListener('click', e => {
       const canvas = e.currentTarget;
