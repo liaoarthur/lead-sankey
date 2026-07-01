@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   update:
@@ -29,18 +28,14 @@ jobs:
         id: date
         run: echo "today=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
-      - name: Create or update Pull Request
-        uses: peter-evans/create-pull-request@v6
-        with:
-          commit-message: "Update dashboard data ${{ steps.date.outputs.today }}"
-          title: "Update Sankey dashboard data (${{ steps.date.outputs.today }})"
-          body: |
-            Automated daily refresh of HubSpot lead/deal data.
-
-            Rebuilt `index.html` and `deals.html` from the latest HubSpot export.
-            Review the diff, then merge to publish to GitHub Pages.
-          branch: auto/dashboard-update
-          delete-branch: true
-          add-paths: |
-            index.html
-            deals.html
+      - name: Commit and push updated dashboard to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html deals.html
+          if git diff --staged --quiet; then
+            echo "No data changes to commit."
+          else
+            git commit -m "Update dashboard data ${{ steps.date.outputs.today }}"
+            git push
+          fi
